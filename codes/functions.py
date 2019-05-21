@@ -291,3 +291,83 @@ def mean_target_encoding(train, valid, test, features, target, folds = 5):
 
     # return data
     return train, valid, tmp_test
+
+
+
+
+##########
+##########
+########## EXTRACT TEXT FEATURES
+
+# extract basic features from strings
+# appends new features to the data frame
+
+
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+def add_text_features(data, strings, k = 5, keep = True):
+
+    ##### PROCESSING LOOP
+    for var in strings:
+
+        ### TEXT PREPROCESSING
+
+        # replace NaN with empty string
+        data[var][pd.isnull(data[var])] = ''
+
+        # remove common words
+        freq = pd.Series(' '.join(data[var]).split()).value_counts()[:10]
+        #freq = list(freq.index)
+        #data[var] = data[var].apply(lambda x: " ".join(x for x in x.split() if x not in freq))
+        #data[var].head()
+
+        # remove rare words
+        freq = pd.Series(' '.join(data[var]).split()).value_counts()[-10:]
+        #freq = list(freq.index)
+        #data[var] = data[var].apply(lambda x: " ".join(x for x in x.split() if x not in freq))
+        #data[var].head()
+
+        # convert to lowercase 
+        data[var] = data[var].apply(lambda x: " ".join(x.lower() for x in x.split())) 
+
+        # remove punctuation
+        data[var] = data[var].str.replace('[^\w\s]','')         
+
+
+        ### COMPUTE BASIC FEATURES
+
+        # word count
+        data[var + '_word_count'] = data[var].apply(lambda x: len(str(x).split(" ")))
+        data[var + '_word_count'][data[var] == ''] = 0
+
+        # character count
+        data[var + '_char_count'] = data[var].str.len().fillna(0).astype('int64')
+
+
+        ##### COMPUTE TF-IDF FEATURES
+
+        # import vectorizer
+        tfidf  = TfidfVectorizer(max_features = k, 
+                                 lowercase    = True, 
+                                 norm         = 'l2', 
+                                 analyzer     = 'word', 
+                                 stop_words   = 'english', 
+                                 ngram_range  = (1, 1))
+
+        # compute TF-IDF
+        vals = tfidf.fit_transform(data[var])
+        vals = pd.SparseDataFrame(vals)
+        vals.columns = [var + '_tfidf_' + str(p) for p in vals.columns]
+        data = pd.concat([data, vals], axis = 1)
+
+
+        ### CORRECTIONS
+
+        # remove raw text
+        if keep == False:
+            del data[var]
+
+        # print dimensions
+        #print(data.shape)
+        
+    # return data
+    return data
