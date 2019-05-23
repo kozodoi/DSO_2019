@@ -48,8 +48,9 @@ def encode_factors(df, method = "label"):
 # aggregates factors using mode and nunique
 # returns df with generated features
 
-def aggregate_data(df, group_var, num_stats = ['mean', 'sum'], 
-                   label = None, sd_zeros = False):
+import scipy.stats
+def aggregate_data(df, group_var, num_stats = ['mean', 'sum'],
+                   var_label = None, sd_zeros = False):
     
     
     ### SEPARATE FEATURES
@@ -59,7 +60,6 @@ def aggregate_data(df, group_var, num_stats = ['mean', 'sum'],
 
     # find factors
     df_factors = [f for f in df.columns if df[f].dtype == "object"]
-    df_factors = ['fullVisitorId', 'device_operatingSystem', 'geoNetwork_country', 'channelGrouping']
         
     # partition subsets
     if type(group_var) == str:
@@ -120,8 +120,8 @@ def aggregate_data(df, group_var, num_stats = ['mean', 'sum'],
     ##### LAST STEPS
 
     # update labels
-    if (label != None):
-        agg_df.columns = [label + "_" + str(col) for col in agg_df.columns]
+    if (var_label != None):
+        agg_df.columns = [var_label + "_" + str(col) for col in agg_df.columns]
     
     # impute zeros for SD
     if (sd_zeros == True):
