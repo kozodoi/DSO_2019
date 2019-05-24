@@ -1,26 +1,80 @@
-##########
-##########
-########## SUBMIT TO QSCORE
+###############################
+#                             #
+#         1. MODELING         #
+#                             #
+###############################
 
+###############################
+#                             #
+#      SUBMIT TO QSCORE       #
+#                             #
+###############################
 
 import io, math, requests
-def submit_prediction(df, sep=',', comment='', **kwargs):
-    TOKEN='9442bece1dab6c68fbe2ba3c3e798ceb6b26d920b1bc17655690073413aa85d47d2a46fe393e013a86a5a866c34d495f5df86c690f24db12a83b17f229df6121'
+def submit_prediction(df, sep=',', comment='', compression='gzip', **kwargs):
+    TOKEN='e14ac5c20102ef4dc10712ec7838b44f48e227604d6a931ab92804ce785527ac43465fdfbc5bd8269a92cf32fffd71fed365d3dfd95e029ac43c14e25cc5c788'
     URL='https://qscore.datascience-olympics.com/api/submissions'
-    buffer = io.StringIO()
-    df.to_csv(buffer, sep=sep, **kwargs)
-    buffer.seek(0)
-    r = requests.post(URL, headers={'Authorization': 'Bearer {}'.format(TOKEN)},files={'datafile': buffer},data={'comment':comment})
+    df.to_csv('temporary.dat', sep=sep, compression=compression, **kwargs)
+    r = requests.post(URL, headers={'Authorization': 'Bearer {}'.format(TOKEN)},files={'datafile': open('temporary.dat', 'rb')},data={'comment':comment, 'compression': compression})
     if r.status_code == 429:
         raise Exception('Submissions are too close. Next submission is only allowed in {} seconds.'.format(int(math.ceil(int(r.headers['x-rate-limit-remaining']) / 1000.0))))
     if r.status_code != 200:
         raise Exception(r.text)
+        
+        
+        
+################################
+#                              #
+#    TEST-TIME AUGMENTATION    #
+#                              #
+################################
+
+# creates multiple versionf of test data (with noise)
+# averages predictions over the created samples
+
+def predict_proba_with_tta(X_test, model, num_iteration, alpha = 0.01, n = 4, seed = 0):
+
+    # set random seed
+    np.random.seed(seed = seed)
+
+    # original prediction
+    preds = model.predict_proba(X_test, num_iteration = num_iteration)[:, 1] / (n + 1)
+
+    # select numeric features
+    num_vars = [var for var in X_test.columns if X_test[var].dtype != "object"]
+
+    # synthetic predictions
+    for i in range(n):
+
+        # copy data
+        X_new = X_test.copy()
+
+        # introduce noise
+        for var in num_vars:
+            X_new[var] = X_new[var] + alpha * np.random.normal(0, 1, size = len(X_new)) * X_new[var].std()
+
+        # predict probss
+        preds_new = model.predict_proba(X_new, num_iteration = num_iteration)[:, 1]
+        preds += preds_new / (n + 1)
+
+    # return probs
+    return preds
 
 
-
-##########
-##########
-########## ENCODING FACTORS
+      
+    
+    
+################################
+#                              #
+#      2. DATA PREPARATION     #
+#                              #
+################################
+    
+###############################
+#                             #
+#        ENCODE FACTORS       #
+#                             #
+###############################
 
 # performs dummy or label encoding
 
@@ -40,9 +94,31 @@ def encode_factors(df, method = "label"):
     return df
 
 
-##########
-##########
-########## AGGREGATING DATA
+
+###############################
+#                             #
+#        COUNT MISSINGS       #
+#                             #
+###############################
+
+# computes missings per variable (count, %)
+# displays variables with most missings
+
+import pandas as pd
+def count_missings(data):
+    total = data.isnull().sum().sort_values(ascending = False)
+    percent = (data.isnull().sum() / data.isnull().count() * 100).sort_values(ascending = False)
+    table = pd.concat([total, percent], axis = 1, keys = ["Total", "Percent"])
+    table = table[table["Total"] > 0]
+    return table
+
+
+
+###############################
+#                             #
+#        AGGRGEATE DATA       #
+#                             #
+###############################
 
 # aggregates numeric data using specified stats
 # aggregates factors using mode and nunique
@@ -60,6 +136,7 @@ def aggregate_data(df, group_var, num_stats = ['mean', 'sum'],
 
     # find factors
     df_factors = [f for f in df.columns if df[f].dtype == "object"]
+    df_factors = ['group_id']
         
     # partition subsets
     if type(group_var) == str:
@@ -136,9 +213,11 @@ def aggregate_data(df, group_var, num_stats = ['mean', 'sum'],
 
 
 
-##########
-##########
-########## CREATING FEATURES FROM DATES
+###############################
+#                             #
+#      ADD DATE FEATURES      #
+#                             #
+###############################
 
 # creates a set of date-related features
 # outputs df with generated features
@@ -166,142 +245,16 @@ def add_datepart(df, fldname, drop=True, time=False):
     
     if drop: df.drop(fldname, axis=1, inplace=True)
         
-        
-        
-##########
-##########
-########## COUNTING MISSINGS
-
-# computes missings per variable (count, %)
-# displays variables with most missings
-
-import pandas as pd
-def count_missings(data):
-    total = data.isnull().sum().sort_values(ascending = False)
-    percent = (data.isnull().sum() / data.isnull().count() * 100).sort_values(ascending = False)
-    table = pd.concat([total, percent], axis = 1, keys = ["Total", "Percent"])
-    table = table[table["Total"] > 0]
-    return table
 
 
-
-##########
-##########
-########## TEST TIME AUGMENTATION
-
-# creates multiple versionf of test data (with noise)
-# averages predictions over the created samples
-
-def predict_proba_with_tta(X_test, model, num_iteration, alpha = 0.01, n = 4, seed = 0):
-
-    # set random seed
-    np.random.seed(seed = seed)
-
-    # original prediction
-    preds = model.predict_proba(X_test, num_iteration = num_iteration)[:, 1] / (n + 1)
-
-    # select numeric features
-    num_vars = [var for var in X_test.columns if X_test[var].dtype != "object"]
-
-    # synthetic predictions
-    for i in range(n):
-
-        # copy data
-        X_new = X_test.copy()
-
-        # introduce noise
-        for var in num_vars:
-            X_new[var] = X_new[var] + alpha * np.random.normal(0, 1, size = len(X_new)) * X_new[var].std()
-
-        # predict probss
-        preds_new = model.predict_proba(X_new, num_iteration = num_iteration)[:, 1]
-        preds += preds_new / (n + 1)
-
-    # return probs
-    return preds
-
-
-
-##########
-##########
-########## MEAN TARGET ENCODING
-
-# replaces factors with mean target values per value
-# training data: encoding using internal CV
-# validation and test data: encoding using  training data
-
-from sklearn.model_selection import StratifiedKFold
-def mean_target_encoding(train, valid, test, features, target, folds = 5):
-    from sklearn.model_selection import StratifiedKFold
-    ##### TRAINING
-
-    # cross-validation
-    skf = StratifiedKFold(n_splits = folds, random_state = 777, shuffle = True)
-    for n_fold, (trn_idx, val_idx) in enumerate(skf.split(train, train[target])):
-
-        # partition folds
-        trn_x, trn_y = train.iloc[trn_idx], y.iloc[trn_idx]
-        val_x, val_y = train.iloc[val_idx], y.iloc[val_idx]
-
-        # loop for facrtors
-        for var in features:
-
-            # feature name
-            name = "_".join(["mean_target_per", str(var)])
-
-            # compute means
-            means = val_x[var].map(trn_x.groupby(var)[target].mean())
-            val_x[name] = means
-
-            # impute means
-            if n_fold == 0:
-                train[name] = np.nan
-                train.iloc[val_idx] = val_x
-            else:
-                train.iloc[val_idx] = val_x
-
-
-    ##### VALIDATION
-
-    # loop for factors
-    for var in features:
-        means = valid[var].map(train.groupby(var)[target].mean())
-        valid[name] = means
-
-
-    ##### TEST
-
-    # copy data
-    tmp_test = test.copy()
-
-    # loop for factors
-    for var in features:
-        means = tmp_test[var].map(train.groupby(var)[target].mean())
-        tmp_test[name] = means
-
-
-    ##### CORRECTIONS
-
-    # remove target
-    del train[target], valid[target]
-
-    # remove factors
-    for var in features:
-        del train[var], valid[var], tmp_test[var]
-
-    # return data
-    return train, valid, tmp_test
-
-
-
-
-##########
-##########
-########## EXTRACT TEXT FEATURES
+###############################
+#                             #
+#      ADD TEXT FEATURES      #
+#                             #
+###############################
 
 # extract basic features from strings
 # appends new features to the data frame
-
 
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 def add_text_features(data, strings, k = 5, keep = True):
